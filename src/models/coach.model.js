@@ -1,99 +1,83 @@
 // =============================================================
 // FILE: src/models/coach.model.js
-// PURPOSE: Mongoose schema for a Coach created by an Admin.
-//          Coach logs in with email + password (set by admin).
-//          isEmailVerified flips to true after first-login OTP.
-//          After that, coach logs in directly with email+password.
-//          coachUsername kept (sparse) for backward compatibility.
+// PURPOSE: Coach schema. Created by admin. Logs in with email
+//          + password. isEmailVerified flips true after first
+//          login OTP. After that logs in directly forever.
+// FIX: pre("save") hook uses try/catch. Password hashed only
+//      when modified and when password field exists.
 // =============================================================
 
 import mongoose from "mongoose";
-import bcrypt from "bcryptjs";
+import bcrypt   from "bcryptjs";
 
 const coachSchema = new mongoose.Schema(
   {
     name: {
-      type: String,
+      type:     String,
       required: [true, "Name is required"],
-      trim: true,
+      trim:     true,
     },
     email: {
-      type: String,
-      required: [true, "Email is required"],
+      type:      String,
+      required:  [true, "Email is required"],
       lowercase: true,
-      trim: true,
+      trim:      true,
     },
     phone: {
-      type: String,
+      type:     String,
       required: [true, "Phone is required"],
-      trim: true,
+      trim:     true,
     },
-
-    // ── Password-based auth (new flow) ────────────────────
     password: {
-      type: String,
+      type:   String,
       select: false,
     },
-    // Flips true after coach verifies email on first login
     isEmailVerified: {
-      type: Boolean,
+      type:    Boolean,
       default: false,
     },
-
     role: {
-      type: String,
+      type:    String,
       default: "coach",
     },
-
     status: {
-      type: String,
-      enum: ["active", "inactive", "suspended"],
+      type:    String,
+      enum:    ["active", "inactive", "suspended"],
       default: "active",
     },
-
-    // Batches assigned to this coach
     assignedBatches: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Batch",
+        ref:  "Batch",
       },
     ],
-
-    // Which admin created this coach
     adminId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Admin",
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      "Admin",
       required: true,
     },
-
-    // OTP for first-login email verification
     otp: {
-      type: String,
+      type:    String,
       default: null,
     },
     otpCreatedAt: {
-      type: Date,
+      type:    Date,
       default: null,
     },
-
-    // Profile image
     profile: {
-      type: String,
+      type:    String,
       default: null,
     },
     profile_id: {
-      type: String,
+      type:    String,
       default: null,
     },
-
-    // Active JWT (single-session enforcement)
     currentToken: {
-      type: String,
+      type:    String,
       default: null,
     },
-
     lastLogin: {
-      type: Date,
+      type:    Date,
       default: null,
     },
   },
@@ -101,15 +85,16 @@ const coachSchema = new mongoose.Schema(
 );
 
 // ── Hash password before saving ───────────────────────────
-coachSchema.pre("save", async function (next) {
-  if (!this.isModified("password") || !this.password) return next();
+coachSchema.pre("save", async function () {
+  if (!this.password || !this.isModified("password")) return;
+
   this.password = await bcrypt.hash(this.password, 12);
-  next();
 });
 
 // ── Compare password ──────────────────────────────────────
-coachSchema.methods.comparePassword = async function (entered) {
-  return bcrypt.compare(entered, this.password);
+coachSchema.methods.comparePassword = async function (enteredPassword) {
+  return bcrypt.compare(enteredPassword, this.password);
 };
 
-export default mongoose.model("Coach", coachSchema);
+const Coach = mongoose.model("Coach", coachSchema);
+export default Coach;

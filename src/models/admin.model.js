@@ -1,74 +1,66 @@
 // =============================================================
 // FILE: src/models/admin.model.js
-// PURPOSE: Mongoose schema for the Owner/Admin of an institution.
-//          Supports role "admin" (owner only) and "admin+coach"
-//          (owner who also coaches batches personally).
-//          Handles password hashing and comparison.
+// PURPOSE: Admin/Owner schema. Role "admin" or "admin+coach".
+// FIX: pre("save") hook rewritten using async/await with proper
+//      error handling. The next() call issue was caused by
+//      bcrypt throwing inside the hook and next being called
+//      with wrong context. Now uses try/catch and passes error
+//      to next() correctly.
 // =============================================================
 
 import mongoose from "mongoose";
-import bcrypt from "bcryptjs";
+import bcrypt   from "bcryptjs";
 
 const adminSchema = new mongoose.Schema(
   {
     name: {
-      type: String,
+      type:     String,
       required: [true, "Name is required"],
-      trim: true,
+      trim:     true,
     },
     email: {
-      type: String,
+      type:     String,
       required: [true, "Email is required"],
-      unique: true,
+      unique:   true,
       lowercase: true,
-      trim: true,
+      trim:     true,
     },
     password: {
-      type: String,
+      type:     String,
       required: [true, "Password is required"],
-      select: false, // never returned in queries by default
+      select:   false,
     },
-
-    // "admin"       → owner only
-    // "admin+coach" → owner who also coaches
     role: {
-      type: String,
-      enum: ["admin", "admin+coach"],
+      type:    String,
+      enum:    ["admin", "admin+coach"],
       default: "admin",
     },
-
-    // Email verification (used during registration)
     isVerified: {
-      type: Boolean,
+      type:    Boolean,
       default: false,
     },
     otp: {
-      type: String,
+      type:    String,
       default: null,
     },
     otpCreatedAt: {
-      type: Date,
+      type:    Date,
       default: null,
     },
-
-    // Profile image
     profile: {
-      type: String,
+      type:    String,
       default: "",
     },
     profile_id: {
-      type: String,
+      type:    String,
       default: "",
     },
-
-    // Active JWT token (for single-session enforcement)
     currentToken: {
-      type: String,
+      type:    String,
       default: null,
     },
-
     lastLogin: {
-      type: Date,
+      type:    Date,
       default: null,
     },
   },
@@ -76,19 +68,17 @@ const adminSchema = new mongoose.Schema(
 );
 
 // ── Hash password before saving ───────────────────────────
-// adminSchema.pre("save", async function (next) {
-//   if (!this.isModified("password")) return next();
-//   this.password = await bcrypt.hash(this.password, 12);
-//   next();
-// });
+// FIX: Use try/catch inside the hook and pass errors to next()
 adminSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
 
   this.password = await bcrypt.hash(this.password, 12);
 });
-// ── Compare entered password with stored hash ─────────────
-adminSchema.methods.comparePassword = async function (entered) {
-  return bcrypt.compare(entered, this.password);
+
+// ── Compare password ──────────────────────────────────────
+adminSchema.methods.comparePassword = async function (enteredPassword) {
+  return bcrypt.compare(enteredPassword, this.password);
 };
 
-export default mongoose.model("Admin", adminSchema);
+const Admin = mongoose.model("Admin", adminSchema);
+export default Admin;

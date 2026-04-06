@@ -1,38 +1,57 @@
 // =============================================================
-// FILE: src/controllers/coach/dashboard.controller.js
-// PURPOSE: Coach dashboard KPIs. Returns the coach's assigned
-//          batches, total students, today's attendance status
-//          (marked or not), and this month's fee summary.
+// FILE: src/controllers/coach/coach.controller.js
+// PURPOSE: Coach dashboard, attendance marking, fee collection.
+//          All three are in one file because coach.routes.js
+//          imports them all from here.
+// FIX: getCoachDashboard now fetches batches directly from
+//      Batch collection using coachId filter — more reliable
+//      than relying solely on coach.assignedBatches array.
 // =============================================================
 
-import Coach from "../../models/coach.model.js";
+import Coach   from "../../models/coach.model.js";
 import Student from "../../models/student.model.js";
-import Batch from "../../models/batch.model.js";
+import Batch   from "../../models/batch.model.js";
 import handleErrors from "../../middleware/handleErrors.js";
+
+// =============================================================
+// DASHBOARD
+// =============================================================
 
 export const getCoachDashboard = async (req, res, next) => {
   try {
     const coachId = req.coach._id;
     const adminId = req.coach.adminId;
 
-    const coach = await Coach.findById(coachId)
-      .populate("assignedBatches", "batchName timing status weekDays startTime endTime");
+    const coach = await Coach.findById(coachId);
+    if (!coach) return next(handleErrors(404, "Coach not found"));
 
-    const activeBatches = coach.assignedBatches.filter((b) => b.status === "active");
+    // FIX: Query batches directly by coachId — more reliable
+    // than coach.assignedBatches which may be stale
+    const activeBatches = await Batch.find({
+      coachId,
+      adminId,
+      status: "active",
+    }).select("batchName timing startTime endTime weekDays status");
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
+    const currentMonth =
+      today.toLocaleString("en-IN", { month: "long" }) +
+      " " +
+      today.getFullYear();
 
     const batchStats = await Promise.all(
       activeBatches.map(async (batch) => {
         const students = await Student.find({
           batchId: batch._id,
-          status: "active",
+          coachId,
+          status:  "active",
         }).select("attendance fee monthlyFee");
 
         const totalStudents = students.length;
 
-        // Check if attendance is marked today
+        // Count students who have attendance marked today
         const markedToday = students.filter((s) =>
           s.attendance.some((a) => {
             const d = new Date(a.date);
@@ -41,9 +60,9 @@ export const getCoachDashboard = async (req, res, next) => {
           })
         ).length;
 
-        // Current month fee stats
-        const currentMonth = today.toLocaleString("en-IN", { month: "long" }) + " " + today.getFullYear();
-        let feePaid = 0, feePending = 0;
+        // Fee stats for current month
+        let feePaid = 0;
+        let feePending = 0;
         students.forEach((s) => {
           const entry = s.fee.find((f) => f.month === currentMonth);
           if (entry?.status === "paid") feePaid++;
@@ -51,9 +70,9 @@ export const getCoachDashboard = async (req, res, next) => {
         });
 
         return {
-          batchId:      batch._id,
-          batchName:    batch.batchName,
-          timing:       batch.timing,
+          batchId:               batch._id,
+          batchName:             batch.batchName,
+          timing:                batch.timing || `${batch.startTime || ""} - ${batch.endTime || ""}`,
           totalStudents,
           attendanceMarkedToday: markedToday,
           attendancePending:     totalStudents - markedToday,
@@ -66,7 +85,11 @@ export const getCoachDashboard = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      coach: { name: coach.name, email: coach.email, profile: coach.profile },
+      coach: {
+        name:    coach.name,
+        email:   coach.email,
+        profile: coach.profile,
+      },
       totalBatches:  activeBatches.length,
       totalStudents: batchStats.reduce((s, b) => s + b.totalStudents, 0),
       batchStats,
@@ -76,13 +99,8 @@ export const getCoachDashboard = async (req, res, next) => {
   }
 };
 
-
 // =============================================================
-// FILE: src/controllers/coach/attendance.controller.js
-// PURPOSE: Coach marks attendance for their assigned batches.
-//          Scope-checked: coach can only access students in
-//          their own batches. Uses same logic as admin controller
-//          but scoped to req.coach.
+// ATTENDANCE
 // =============================================================
 
 export const coachMarkAttendance = async (req, res, next) => {
@@ -97,7 +115,9 @@ export const coachMarkAttendance = async (req, res, next) => {
 
     // Verify this batch belongs to this coach
     const batch = await Batch.findOne({ _id: batchId, coachId, adminId });
-    if (!batch) return next(handleErrors(403, "You are not assigned to this batch"));
+    if (!batch) {
+      return next(handleErrors(403, "You are not assigned to this batch"));
+    }
 
     const attendanceDate = new Date(date);
     attendanceDate.setHours(0, 0, 0, 0);
@@ -105,12 +125,15 @@ export const coachMarkAttendance = async (req, res, next) => {
     const results = await Promise.all(
       records.map(async ({ studentId, status, remark }) => {
         const student = await Student.findOne({
-          _id: studentId,
+          _id:     studentId,
           batchId,
           coachId,
         });
-        if (!student) return { studentId, error: "Not found or not your student" };
+        if (!student) {
+          return { studentId, error: "Student not found or not in your batch" };
+        }
 
+        // Remove existing record for this date if any (re-mark support)
         student.attendance = student.attendance.filter((a) => {
           const d = new Date(a.date);
           d.setHours(0, 0, 0, 0);
@@ -130,7 +153,11 @@ export const coachMarkAttendance = async (req, res, next) => {
       })
     );
 
-    res.status(200).json({ success: true, message: "Attendance marked", results });
+    res.status(200).json({
+      success: true,
+      message: `Attendance marked for ${results.filter((r) => r.success).length} students`,
+      results,
+    });
   } catch (err) {
     next(err);
   }
@@ -139,16 +166,21 @@ export const coachMarkAttendance = async (req, res, next) => {
 export const coachGetBatchAttendance = async (req, res, next) => {
   try {
     const { batchId } = req.params;
-    const { date } = req.query;
-    const coachId = req.coach._id;
+    const { date }    = req.query;
+    const coachId     = req.coach._id;
 
     const batch = await Batch.findOne({ _id: batchId, coachId });
     if (!batch) return next(handleErrors(403, "Not your batch"));
 
-    const students = await Student.find({ batchId, coachId, status: "active" })
-      .select("name phone profile attendance");
+    const students = await Student.find({
+      batchId,
+      coachId,
+      status: "active",
+    }).select("name fatherName phone profile attendance");
 
-    if (!date) return res.status(200).json({ success: true, batch, students });
+    if (!date) {
+      return res.status(200).json({ success: true, batch, students });
+    }
 
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
@@ -162,6 +194,7 @@ export const coachGetBatchAttendance = async (req, res, next) => {
       return {
         studentId: s._id,
         name:      s.name,
+        fatherName:s.fatherName,
         phone:     s.phone,
         profile:   s.profile,
         status:    record?.status || null,
@@ -176,12 +209,8 @@ export const coachGetBatchAttendance = async (req, res, next) => {
   }
 };
 
-
 // =============================================================
-// FILE: src/controllers/coach/fees.controller.js
-// PURPOSE: Coach collects fees for students in their batches.
-//          Cannot generate fees (admin only).
-//          Cannot access students outside their batches.
+// FEES
 // =============================================================
 
 export const coachCollectFee = async (req, res, next) => {
@@ -193,15 +222,21 @@ export const coachCollectFee = async (req, res, next) => {
     if (!studentId || !month?.trim() || !amount) {
       return next(handleErrors(400, "studentId, month and amount are required"));
     }
-    if (amount <= 0) return next(handleErrors(400, "Amount must be greater than 0"));
+    if (Number(amount) <= 0) {
+      return next(handleErrors(400, "Amount must be greater than 0"));
+    }
 
-    // Scope check — coach can only collect from their students
+    // Scope check — coach can only collect from their own students
     const student = await Student.findOne({ _id: studentId, coachId, adminId });
-    if (!student) return next(handleErrors(403, "Not your student"));
+    if (!student) {
+      return next(handleErrors(403, "Student not found or not in your batch"));
+    }
 
     const feeEntry = student.fee.find((f) => f.month === month.trim());
     if (!feeEntry) {
-      return next(handleErrors(404, "Fee not generated for this month. Ask admin to generate."));
+      return next(
+        handleErrors(404, "Fee not generated for this month. Ask your admin to generate fees.")
+      );
     }
 
     const prevPaid = feeEntry.paidAmount || 0;
@@ -221,6 +256,7 @@ export const coachCollectFee = async (req, res, next) => {
     feeEntry.collectedByModel = "Coach";
     feeEntry.remarks          = remarks?.trim() || "";
 
+    // Generate receipt if now fully paid
     if (feeEntry.paidAmount >= feeEntry.monthlyFee && !feeEntry.receiptNo) {
       const { default: generateReceiptNo } = await import("../../utils/generateReceipt.js");
       feeEntry.receiptNo = await generateReceiptNo(adminId.toString(), month);
@@ -230,9 +266,10 @@ export const coachCollectFee = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: excess > 0
-        ? `Payment collected. ₹${excess} added to advance balance.`
-        : "Payment collected successfully",
+      message:
+        excess > 0
+          ? `Payment collected. ₹${excess} added to advance balance.`
+          : "Payment collected successfully",
       feeEntry,
       advanceBalance: student.advanceBalance,
     });
@@ -244,17 +281,22 @@ export const coachCollectFee = async (req, res, next) => {
 export const coachGetBatchFees = async (req, res, next) => {
   try {
     const { batchId } = req.params;
-    const { month } = req.query;
-    const coachId = req.coach._id;
+    const { month }   = req.query;
+    const coachId     = req.coach._id;
 
     const batch = await Batch.findOne({ _id: batchId, coachId });
     if (!batch) return next(handleErrors(403, "Not your batch"));
 
-    const students = await Student.find({ batchId, coachId, status: "active" })
-      .select("name phone monthlyFee advanceBalance fee");
+    const students = await Student.find({
+      batchId,
+      coachId,
+      status: "active",
+    }).select("name phone monthlyFee advanceBalance fee");
 
     const data = students.map((s) => {
-      const feeEntry = month ? s.fee.find((f) => f.month === month.trim()) : null;
+      const feeEntry = month
+        ? s.fee.find((f) => f.month === month.trim())
+        : null;
       return {
         studentId:      s._id,
         name:           s.name,

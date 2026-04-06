@@ -1,13 +1,16 @@
 // =============================================================
 // FILE: src/controllers/admin/batch.controller.js
-// PURPOSE: Full CRUD for Batches. Admin can create, list,
-//          update, archive and delete batches. Includes coach
-//          assignment and student count per batch.
-//          startTime + endTime stored as "9:00 AM" strings.
+// PURPOSE: Full CRUD for Batches.
+// FIXES:
+//   1. updateBatch() now handles coachId — saves it on Batch,
+//      updates Coach.assignedBatches, syncs Student.coachId
+//   2. createBatch() also syncs Coach.assignedBatches on create
+//   3. assignCoach() kept as standalone endpoint for direct use
+//   4. deleteBatch() cleans up Coach.assignedBatches properly
 // =============================================================
 
-import Batch from "../../models/batch.model.js";
-import Coach from "../../models/coach.model.js";
+import Batch   from "../../models/batch.model.js";
+import Coach   from "../../models/coach.model.js";
 import Student from "../../models/student.model.js";
 import handleErrors from "../../middleware/handleErrors.js";
 
@@ -26,34 +29,37 @@ export const createBatch = async (req, res, next) => {
       batchName: { $regex: new RegExp(`^${batchName.trim()}$`, "i") },
       adminId,
     });
-    if (exists) return next(handleErrors(400, "A batch with this name already exists"));
+    if (exists) {
+      return next(handleErrors(400, "A batch with this name already exists"));
+    }
 
     // Validate coach if provided
+    let coachName = "";
     if (coachId) {
       const coach = await Coach.findOne({ _id: coachId, adminId, status: "active" });
       if (!coach) return next(handleErrors(404, "Coach not found or inactive"));
+      coachName = coach.name;
     }
 
     const batch = new Batch({
-      batchName: batchName.trim(),
-      startTime: startTime?.trim() || "",
-      endTime:   endTime?.trim()   || "",
-      fee:       fee || 0,
-      weekDays:  weekDays || [],
-      coachId:   coachId || null,
+      batchName:  batchName.trim(),
+      startTime:  startTime?.trim() || "",
+      endTime:    endTime?.trim()   || "",
+      fee:        Number(fee)       || 0,
+      weekDays:   weekDays          || [],
+      coachId:    coachId           || null,
+      coachName,
       adminId,
-      createdBy: req.admin.name,
+      createdBy:  req.admin.name,
     });
 
     await batch.save();
 
-    // If coach assigned, add batch to coach's assignedBatches
+    // Add batch to coach's assignedBatches
     if (coachId) {
       await Coach.findByIdAndUpdate(coachId, {
         $addToSet: { assignedBatches: batch._id },
       });
-      batch.coachName = (await Coach.findById(coachId))?.name || "";
-      await batch.save({ validateBeforeSave: false });
     }
 
     res.status(201).json({
@@ -79,12 +85,12 @@ export const getBatches = async (req, res, next) => {
       .populate("coachId", "name email phone")
       .sort({ createdAt: -1 });
 
-    // Attach student count to each batch
+    // Attach active student count to each batch
     const batchesWithCount = await Promise.all(
       batches.map(async (batch) => {
         const studentCount = await Student.countDocuments({
           batchId: batch._id,
-          status: "active",
+          status:  "active",
         });
         return { ...batch.toObject(), studentCount };
       })
@@ -93,7 +99,7 @@ export const getBatches = async (req, res, next) => {
     res.status(200).json({
       success: true,
       batches: batchesWithCount,
-      total: batchesWithCount.length,
+      total:   batchesWithCount.length,
     });
   } catch (err) {
     next(err);
@@ -104,7 +110,7 @@ export const getBatches = async (req, res, next) => {
 export const getBatchById = async (req, res, next) => {
   try {
     const batch = await Batch.findOne({
-      _id: req.params.id,
+      _id:     req.params.id,
       adminId: req.admin._id,
     }).populate("coachId", "name email phone");
 
@@ -112,11 +118,11 @@ export const getBatchById = async (req, res, next) => {
 
     const students = await Student.find({
       batchId: batch._id,
-      status: "active",
-    }).select("name phone monthlyFee advanceBalance attendanceStats");
+      status:  "active",
+    }).select("name fatherName phone monthlyFee advanceBalance status enrollDate");
 
     res.status(200).json({
-      success: true,
+      success:      true,
       batch,
       students,
       studentCount: students.length,
@@ -127,69 +133,142 @@ export const getBatchById = async (req, res, next) => {
 };
 
 // ── PUT /admin/batch/:id ──────────────────────────────────
+// FIX: Now handles coachId changes — updates Coach.assignedBatches
+//      and syncs Student.coachId for all students in this batch
 export const updateBatch = async (req, res, next) => {
   try {
-    const { batchName, startTime, endTime, fee, weekDays, status } = req.body;
-    const batch = await Batch.findOne({
-      _id: req.params.id,
-      adminId: req.admin._id,
-    });
+    const { batchName, startTime, endTime, fee, weekDays, status, coachId } = req.body;
+    const adminId = req.admin._id;
+
+    const batch = await Batch.findOne({ _id: req.params.id, adminId });
     if (!batch) return next(handleErrors(404, "Batch not found"));
 
+    // ── Basic field updates ───────────────────────────────
     if (batchName?.trim()) batch.batchName = batchName.trim();
-    if (startTime !== undefined) batch.startTime = startTime.trim();
-    if (endTime   !== undefined) batch.endTime   = endTime.trim();
-    if (fee       !== undefined) batch.fee       = fee;
+    if (startTime !== undefined) batch.startTime = startTime?.trim() || "";
+    if (endTime   !== undefined) batch.endTime   = endTime?.trim()   || "";
+    if (fee       !== undefined) batch.fee       = Number(fee)       || 0;
     if (weekDays  !== undefined) batch.weekDays  = weekDays;
     if (status)                  batch.status    = status;
 
+    // ── Coach assignment handling ─────────────────────────
+    // coachId comes as string from form, normalize to null if empty
+    const newCoachId = coachId && coachId !== "" ? coachId : null;
+    const oldCoachId = batch.coachId ? batch.coachId.toString() : null;
+    const coachChanged = newCoachId !== oldCoachId;
+
+    if (coachChanged) {
+      // Step 1: Remove batch from OLD coach's assignedBatches
+      if (oldCoachId) {
+        await Coach.findByIdAndUpdate(oldCoachId, {
+          $pull: { assignedBatches: batch._id },
+        });
+      }
+
+      if (newCoachId) {
+        // Step 2: Validate new coach belongs to this admin
+        const newCoach = await Coach.findOne({
+          _id:    newCoachId,
+          adminId,
+          status: "active",
+        });
+        if (!newCoach) {
+          return next(handleErrors(404, "Coach not found or inactive"));
+        }
+
+        // Step 3: Add batch to new coach's assignedBatches
+        await Coach.findByIdAndUpdate(newCoachId, {
+          $addToSet: { assignedBatches: batch._id },
+        });
+
+        // Step 4: Update batch fields
+        batch.coachId   = newCoach._id;
+        batch.coachName = newCoach.name;
+      } else {
+        // Unassigning coach
+        batch.coachId   = null;
+        batch.coachName = "";
+      }
+
+      // Step 5: Sync coachId on ALL students in this batch
+      await Student.updateMany(
+        { batchId: batch._id },
+        { coachId: newCoachId || null }
+      );
+    }
+
     await batch.save();
-    res.status(200).json({ success: true, message: "Batch updated", batch });
+
+    // Return populated batch
+    const updatedBatch = await Batch.findById(batch._id)
+      .populate("coachId", "name email phone");
+
+    res.status(200).json({
+      success: true,
+      message: "Batch updated successfully",
+      batch:   updatedBatch,
+    });
   } catch (err) {
     next(err);
   }
 };
 
 // ── POST /admin/batch/:id/assign-coach ───────────────────
+// Standalone endpoint for assigning/unassigning coach
 export const assignCoach = async (req, res, next) => {
   try {
     const { coachId } = req.body;
-    const adminId = req.admin._id;
+    const adminId     = req.admin._id;
 
     const batch = await Batch.findOne({ _id: req.params.id, adminId });
     if (!batch) return next(handleErrors(404, "Batch not found"));
 
-    // Remove batch from previous coach
-    if (batch.coachId) {
-      await Coach.findByIdAndUpdate(batch.coachId, {
+    const oldCoachId = batch.coachId ? batch.coachId.toString() : null;
+
+    // Remove batch from old coach
+    if (oldCoachId) {
+      await Coach.findByIdAndUpdate(oldCoachId, {
         $pull: { assignedBatches: batch._id },
       });
     }
 
-    if (!coachId) {
-      // Unassign coach
+    if (!coachId || coachId === "") {
+      // Unassign
       batch.coachId   = null;
       batch.coachName = "";
       await batch.save();
       await Student.updateMany({ batchId: batch._id }, { coachId: null });
-      return res.status(200).json({ success: true, message: "Coach unassigned", batch });
+
+      return res.status(200).json({
+        success: true,
+        message: "Coach unassigned from batch",
+        batch,
+      });
     }
 
+    // Assign new coach
     const coach = await Coach.findOne({ _id: coachId, adminId, status: "active" });
     if (!coach) return next(handleErrors(404, "Coach not found or inactive"));
-
-    batch.coachId   = coach._id;
-    batch.coachName = coach.name;
-    await batch.save();
 
     await Coach.findByIdAndUpdate(coachId, {
       $addToSet: { assignedBatches: batch._id },
     });
 
-    // Update coachId on all students in this batch
+    batch.coachId   = coach._id;
+    batch.coachName = coach.name;
+    await batch.save();
+
+    // Sync students
     await Student.updateMany({ batchId: batch._id }, { coachId: coach._id });
 
-    res.status(200).json({ success: true, message: "Coach assigned", batch });
+    const updatedBatch = await Batch.findById(batch._id)
+      .populate("coachId", "name email phone");
+
+    res.status(200).json({
+      success: true,
+      message: "Coach assigned successfully",
+      batch:   updatedBatch,
+    });
   } catch (err) {
     next(err);
   }
@@ -199,17 +278,22 @@ export const assignCoach = async (req, res, next) => {
 export const deleteBatch = async (req, res, next) => {
   try {
     const batch = await Batch.findOne({
-      _id: req.params.id,
+      _id:     req.params.id,
       adminId: req.admin._id,
     });
     if (!batch) return next(handleErrors(404, "Batch not found"));
 
     const studentCount = await Student.countDocuments({ batchId: batch._id });
     if (studentCount > 0) {
-      return next(handleErrors(400, `Cannot delete batch with ${studentCount} students. Archive it instead.`));
+      return next(
+        handleErrors(
+          400,
+          `Cannot delete batch with ${studentCount} students. Archive it or move students first.`
+        )
+      );
     }
 
-    // Remove from coach's assigned batches
+    // Remove batch from coach's assignedBatches
     if (batch.coachId) {
       await Coach.findByIdAndUpdate(batch.coachId, {
         $pull: { assignedBatches: batch._id },
@@ -217,7 +301,11 @@ export const deleteBatch = async (req, res, next) => {
     }
 
     await Batch.findByIdAndDelete(batch._id);
-    res.status(200).json({ success: true, message: "Batch deleted" });
+
+    res.status(200).json({
+      success: true,
+      message: "Batch deleted successfully",
+    });
   } catch (err) {
     next(err);
   }

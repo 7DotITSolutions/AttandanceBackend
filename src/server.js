@@ -1,10 +1,3 @@
-// =============================================================
-// FILE: src/server.js
-// PURPOSE: Express entry point. Connects MongoDB, mounts all
-//          routes, handles global errors. This is the final
-//          version with all routes active.
-// =============================================================
-
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -19,11 +12,17 @@ dotenv.config();
 
 const app = express();
 
-// ── Middleware ────────────────────────────────────────────
+// ── CORS FIX (FINAL) ──────────────────────────────────────
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
+  origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 }));
+
+app.options("*", cors());
+
+// ── Body Parsers ───────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -46,7 +45,9 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   const status  = err.status || err.statusCode || 500;
   const message = err.message || "Internal server error";
-  if (status === 500) console.error("Server error:", err);
+
+  console.error("❌ ERROR:", err);
+
   res.status(status).json({ success: false, message });
 });
 

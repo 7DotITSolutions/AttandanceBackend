@@ -5,6 +5,16 @@
 //          Pre-save auto-computes fee status. Safe virtuals.
 // =============================================================
 
+// =============================================================
+// FILE: src/models/student.model.js
+// PURPOSE: Student schema. aadharNumber is now REQUIRED and
+//          unique per admin (one institution). Same student
+//          can be in multiple batches — so uniqueness is on
+//          aadharNumber + adminId (not aadharNumber + batchId).
+//          This allows: same Aadhaar, different batches = OK.
+//          Same Aadhaar, same admin, any batch = BLOCKED.
+// =============================================================
+
 import mongoose from "mongoose";
 
 // ── Fee sub-document ──────────────────────────────────────
@@ -113,11 +123,18 @@ const studentSchema = new mongoose.Schema(
       required: [true, "Phone number is required"],
       trim:     true,
     },
+
+    // ── PRIMARY IDENTITY KEY ──────────────────────────────
+    // Required. Unique per admin (institution).
+    // Same student can be in multiple batches under the same
+    // admin — controlled at controller level, NOT model level.
+    // Format enforced: 12 digits only.
     aadharNumber: {
-      type:    String,
-      trim:    true,
-      default: "",
+      type:     String,
+      required: [true, "Aadhaar number is required"],
+      trim:     true,
     },
+
     schoolName: {
       type:    String,
       trim:    true,
@@ -194,11 +211,11 @@ const studentSchema = new mongoose.Schema(
       default: null,
     },
     fee: {
-      type: [feeSchema],
+      type:    [feeSchema],
       default: [],
     },
     attendance: {
-      type: [attendanceSchema],
+      type:    [attendanceSchema],
       default: [],
     },
   },
@@ -210,9 +227,25 @@ const studentSchema = new mongoose.Schema(
 );
 
 // ── Indexes ───────────────────────────────────────────────
-studentSchema.index({ adminId: 1, batchId: 1 });
-studentSchema.index({ adminId: 1, status:  1 });
-studentSchema.index({ batchId: 1, status:  1 });
+
+// PRIMARY DUPLICATE GUARD:
+// Same Aadhaar + same batch = blocked (can't enroll same student
+// twice in the same batch). Different batch = allowed.
+studentSchema.index(
+  { aadharNumber: 1, batchId: 1 },
+  { unique: true, name: "unique_aadhar_per_batch" }
+);
+
+// LOOKUP INDEX:
+// Fast search by Aadhaar across an admin's institution
+// (for future student dashboard / parent portal)
+studentSchema.index(
+  { aadharNumber: 1, adminId: 1 },
+  { name: "aadhar_admin_lookup" }
+);
+
+studentSchema.index({ adminId: 1, status: 1 });
+studentSchema.index({ batchId: 1, status: 1 });
 studentSchema.index({ coachId: 1 });
 
 // ── Virtuals ──────────────────────────────────────────────
@@ -230,7 +263,7 @@ studentSchema.virtual("outstandingBalance").get(function () {
 });
 
 studentSchema.virtual("attendanceStats").get(function () {
-  const arr = this.attendance || [];
+  const arr   = this.attendance || [];
   const total = arr.length;
   if (!total) return { total: 0, present: 0, absent: 0, leave: 0, percentage: 0 };
   const present = arr.filter((a) => a.status === "present").length;

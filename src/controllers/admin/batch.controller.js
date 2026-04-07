@@ -119,7 +119,7 @@ export const getBatchById = async (req, res, next) => {
     const students = await Student.find({
       batchId: batch._id,
       status:  "active",
-    }).select("name fatherName phone monthlyFee advanceBalance status enrollDate");
+    }).select("name fatherName phone aadharNumber monthlyFee advanceBalance status enrollDate");
 
     res.status(200).json({
       success:      true,

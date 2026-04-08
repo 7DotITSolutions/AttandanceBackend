@@ -11,8 +11,8 @@
 // =============================================================
 
 import Student from "../../models/student.model.js";
-import Batch   from "../../models/batch.model.js";
-import handleErrors         from "../../middleware/handleErrors.js";
+import Batch from "../../models/batch.model.js";
+import handleErrors from "../../middleware/handleErrors.js";
 import deleteFromCloudinary from "../../middleware/deleteImage.js";
 
 // ── Aadhaar validation helper ─────────────────────────────
@@ -67,33 +67,39 @@ export const createStudent = async (req, res, next) => {
     const otherBatchDup = await Student.findOne({
       aadharNumber: aadharNumber.trim(),
       adminId,
-      batchId:      { $ne: batchId },
+      batchId: { $ne: batchId },
     });
 
     // ── Create student ────────────────────────────────────
     const student = new Student({
-      name:         name.trim(),
-      fatherName:   fatherName.trim(),
-      motherName:   motherName?.trim()   || "",
-      phone:        phone.trim(),
+      name: name.trim(),
+      fatherName: fatherName.trim(),
+      motherName: motherName?.trim() || "",
+      phone: phone.trim(),
       aadharNumber: aadharNumber.trim(),
-      schoolName:   schoolName?.trim()   || "",
-      address:      address?.trim()      || "",
-      DOB:          DOB                  || "",
-      batchId:      batch._id,
-      batchName:    batch.batchName,
-      coachId:      batch.coachId        || null,
+      schoolName: schoolName?.trim() || "",
+      address: address?.trim() || "",
+      DOB: DOB || "",
+      batchId: batch._id,
+      batchName: batch.batchName,
+      coachId: batch.coachId || null,
       adminId,
-      monthlyFee:   monthlyFee !== undefined ? Number(monthlyFee) : batch.fee || 0,
-      createdBy:    req.admin.name,
+      monthlyFee:
+        monthlyFee !== undefined &&
+          monthlyFee !== null &&
+          monthlyFee !== "" &&
+          !isNaN(monthlyFee)
+          ? Number(monthlyFee)
+          : batch.fee || 0,
+      createdBy: req.admin.name,
     });
 
     if (req.files?.profile?.[0]) {
-      student.profile    = req.files.profile[0].path;
+      student.profile = req.files.profile[0].path;
       student.profile_id = req.files.profile[0].filename;
     }
     if (req.files?.aadharCardImage?.[0]) {
-      student.aadharCardImage    = req.files.aadharCardImage[0].path;
+      student.aadharCardImage = req.files.aadharCardImage[0].path;
       student.aadharCardImage_id = req.files.aadharCardImage[0].filename;
     }
 
@@ -135,13 +141,13 @@ export const getStudents = async (req, res, next) => {
 
     const filter = { adminId };
     if (batchId) filter.batchId = batchId;
-    if (status)  filter.status  = status;
+    if (status) filter.status = status;
     if (search) {
       filter.$or = [
-        { name:          { $regex: search, $options: "i" } },
-        { fatherName:    { $regex: search, $options: "i" } },
-        { phone:         { $regex: search, $options: "i" } },
-        { aadharNumber:  { $regex: search, $options: "i" } },
+        { name: { $regex: search, $options: "i" } },
+        { fatherName: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+        { aadharNumber: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -159,19 +165,19 @@ export const getStudents = async (req, res, next) => {
 export const getStudentById = async (req, res, next) => {
   try {
     const student = await Student.findOne({
-      _id:     req.params.id,
+      _id: req.params.id,
       adminId: req.admin._id,
     })
-      .populate("batchId",  "batchName timing weekDays fee startTime endTime")
-      .populate("coachId",  "name email phone");
+      .populate("batchId", "batchName timing weekDays fee startTime endTime")
+      .populate("coachId", "name email phone");
 
     if (!student) return next(handleErrors(404, "Student not found"));
 
     // Also find all other batches this student is enrolled in
     const otherEnrollments = await Student.find({
       aadharNumber: student.aadharNumber,
-      adminId:      student.adminId,
-      _id:          { $ne: student._id },
+      adminId: student.adminId,
+      _id: { $ne: student._id },
     }).select("batchName batchId status");
 
     res.status(200).json({
@@ -205,10 +211,10 @@ export const getStudentByAadhar = async (req, res, next) => {
     }
 
     res.status(200).json({
-      success:     true,
+      success: true,
       aadharNumber,
       studentName: enrollments[0].name,
-      fatherName:  enrollments[0].fatherName,
+      fatherName: enrollments[0].fatherName,
       enrollments,
       totalBatches: enrollments.length,
     });
@@ -227,7 +233,7 @@ export const updateStudent = async (req, res, next) => {
     } = req.body;
 
     const student = await Student.findOne({
-      _id:     req.params.id,
+      _id: req.params.id,
       adminId: req.admin._id,
     });
     if (!student) return next(handleErrors(404, "Student not found"));
@@ -240,8 +246,8 @@ export const updateStudent = async (req, res, next) => {
       // Check new Aadhaar isn't already in this batch under a different record
       const conflict = await Student.findOne({
         aadharNumber: aadharNumber.trim(),
-        batchId:      student.batchId,
-        _id:          { $ne: student._id },
+        batchId: student.batchId,
+        _id: { $ne: student._id },
       });
       if (conflict) {
         return next(
@@ -251,24 +257,31 @@ export const updateStudent = async (req, res, next) => {
       student.aadharNumber = aadharNumber.trim();
     }
 
-    if (name?.trim())             student.name       = name.trim();
-    if (fatherName?.trim())       student.fatherName = fatherName.trim();
+    if (name?.trim()) student.name = name.trim();
+    if (fatherName?.trim()) student.fatherName = fatherName.trim();
     if (motherName !== undefined) student.motherName = motherName?.trim() || "";
-    if (phone?.trim())            student.phone      = phone.trim();
+    if (phone?.trim()) student.phone = phone.trim();
     if (schoolName !== undefined) student.schoolName = schoolName?.trim() || "";
-    if (address    !== undefined) student.address    = address?.trim()    || "";
-    if (DOB        !== undefined) student.DOB        = DOB || "";
-    if (status)                   student.status     = status;
-    if (monthlyFee !== undefined) student.monthlyFee = Number(monthlyFee);
+    if (address !== undefined) student.address = address?.trim() || "";
+    if (DOB !== undefined) student.DOB = DOB || "";
+    if (status) student.status = status;
+    if (
+      monthlyFee !== undefined &&
+      monthlyFee !== null &&
+      monthlyFee !== "" &&
+      !isNaN(monthlyFee)
+    ) {
+      student.monthlyFee = Number(monthlyFee);
+    }
 
     if (req.files?.profile?.[0]) {
       if (student.profile_id) await deleteFromCloudinary(student.profile_id);
-      student.profile    = req.files.profile[0].path;
+      student.profile = req.files.profile[0].path;
       student.profile_id = req.files.profile[0].filename;
     }
     if (req.files?.aadharCardImage?.[0]) {
       if (student.aadharCardImage_id) await deleteFromCloudinary(student.aadharCardImage_id);
-      student.aadharCardImage    = req.files.aadharCardImage[0].path;
+      student.aadharCardImage = req.files.aadharCardImage[0].path;
       student.aadharCardImage_id = req.files.aadharCardImage[0].filename;
     }
 
@@ -286,12 +299,12 @@ export const updateStudent = async (req, res, next) => {
 export const deleteStudent = async (req, res, next) => {
   try {
     const student = await Student.findOne({
-      _id:     req.params.id,
+      _id: req.params.id,
       adminId: req.admin._id,
     });
     if (!student) return next(handleErrors(404, "Student not found"));
 
-    if (student.profile_id)         await deleteFromCloudinary(student.profile_id);
+    if (student.profile_id) await deleteFromCloudinary(student.profile_id);
     if (student.aadharCardImage_id) await deleteFromCloudinary(student.aadharCardImage_id);
 
     await Student.findByIdAndDelete(student._id);
@@ -321,7 +334,7 @@ export const bulkCreateStudents = async (req, res, next) => {
     for (const s of students) {
       try {
         const aadhar = s.aadharNumber?.toString().trim();
-        const phone  = s.phone?.toString().trim();
+        const phone = s.phone?.toString().trim();
 
         if (!aadhar) {
           skipped++;
@@ -350,20 +363,26 @@ export const bulkCreateStudents = async (req, res, next) => {
         }
 
         await Student.create({
-          name:         s.name?.trim()       || "Unknown",
-          fatherName:   s.fatherName?.trim() || "Unknown",
-          motherName:   s.motherName?.trim() || "",
+          name: s.name?.trim() || "Unknown",
+          fatherName: s.fatherName?.trim() || "Unknown",
+          motherName: s.motherName?.trim() || "",
           phone,
           aadharNumber: aadhar,
-          schoolName:   s.schoolName?.trim() || "",
-          address:      s.address?.trim()    || "",
-          DOB:          s.DOB                || "",
-          batchId:      batch._id,
-          batchName:    batch.batchName,
-          coachId:      batch.coachId        || null,
+          schoolName: s.schoolName?.trim() || "",
+          address: s.address?.trim() || "",
+          DOB: s.DOB || "",
+          batchId: batch._id,
+          batchName: batch.batchName,
+          coachId: batch.coachId || null,
           adminId,
-          monthlyFee:   s.monthlyFee || batch.fee || 0,
-          createdBy:    req.admin.name,
+          monthlyFee:
+            s.monthlyFee !== undefined &&
+              s.monthlyFee !== null &&
+              s.monthlyFee !== "" &&
+              !isNaN(s.monthlyFee)
+              ? Number(s.monthlyFee)
+              : batch.fee || 0,
+          createdBy: req.admin.name,
         });
         created++;
       } catch (rowErr) {

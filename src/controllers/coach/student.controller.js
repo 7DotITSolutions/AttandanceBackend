@@ -7,8 +7,8 @@
 // =============================================================
 
 import Student from "../../models/student.model.js";
-import Batch   from "../../models/batch.model.js";
-import handleErrors         from "../../middleware/handleErrors.js";
+import Batch from "../../models/batch.model.js";
+import handleErrors from "../../middleware/handleErrors.js";
 import deleteFromCloudinary from "../../middleware/deleteImage.js";
 
 // ── Aadhaar validation helper ─────────────────────────────
@@ -22,8 +22,8 @@ const verifyCoachBatch = (batchId, coachId, adminId) =>
 export const coachGetBatchStudents = async (req, res, next) => {
   try {
     const { batchId } = req.params;
-    const coachId     = req.coach._id;
-    const adminId     = req.coach.adminId;
+    const coachId = req.coach._id;
+    const adminId = req.coach.adminId;
 
     const batch = await verifyCoachBatch(batchId, coachId, adminId);
     if (!batch) return next(handleErrors(403, "You are not assigned to this batch"));
@@ -33,9 +33,9 @@ export const coachGetBatchStudents = async (req, res, next) => {
 
     if (search) {
       filter.$or = [
-        { name:         { $regex: search, $options: "i" } },
-        { fatherName:   { $regex: search, $options: "i" } },
-        { phone:        { $regex: search, $options: "i" } },
+        { name: { $regex: search, $options: "i" } },
+        { fatherName: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
         { aadharNumber: { $regex: search, $options: "i" } },
       ];
     }
@@ -47,13 +47,13 @@ export const coachGetBatchStudents = async (req, res, next) => {
     res.status(200).json({
       success: true,
       batch: {
-        _id:       batch._id,
+        _id: batch._id,
         batchName: batch.batchName,
-        timing:    batch.timing,
+        timing: batch.timing,
         startTime: batch.startTime,
-        endTime:   batch.endTime,
-        weekDays:  batch.weekDays,
-        fee:       batch.fee,
+        endTime: batch.endTime,
+        weekDays: batch.weekDays,
+        fee: batch.fee,
       },
       students,
       total: students.length,
@@ -67,7 +67,7 @@ export const coachGetBatchStudents = async (req, res, next) => {
 export const coachGetStudentById = async (req, res, next) => {
   try {
     const { studentId } = req.params;
-    const coachId       = req.coach._id;
+    const coachId = req.coach._id;
 
     const student = await Student.findOne({ _id: studentId, coachId })
       .populate("batchId", "batchName timing startTime endTime weekDays fee")
@@ -85,8 +85,8 @@ export const coachGetStudentById = async (req, res, next) => {
 export const coachCreateStudent = async (req, res, next) => {
   try {
     const { batchId } = req.params;
-    const coachId     = req.coach._id;
-    const adminId     = req.coach.adminId;
+    const coachId = req.coach._id;
+    const adminId = req.coach.adminId;
 
     const {
       name, fatherName, motherName, phone,
@@ -130,28 +130,34 @@ export const coachCreateStudent = async (req, res, next) => {
     const otherBatchDup = await Student.findOne({
       aadharNumber: aadharNumber.trim(),
       adminId,
-      batchId:      { $ne: batchId },
+      batchId: { $ne: batchId },
     });
 
     const student = new Student({
-      name:         name.trim(),
-      fatherName:   fatherName.trim(),
-      motherName:   motherName?.trim() || "",
-      phone:        phone.trim(),
+      name: name.trim(),
+      fatherName: fatherName.trim(),
+      motherName: motherName?.trim() || "",
+      phone: phone.trim(),
       aadharNumber: aadharNumber.trim(),
-      schoolName:   schoolName?.trim() || "",
-      address:      address?.trim()    || "",
-      DOB:          DOB                || "",
-      batchId:      batch._id,
-      batchName:    batch.batchName,
+      schoolName: schoolName?.trim() || "",
+      address: address?.trim() || "",
+      DOB: DOB || "",
+      batchId: batch._id,
+      batchName: batch.batchName,
       coachId,
       adminId,
-      monthlyFee:   monthlyFee !== undefined ? Number(monthlyFee) : batch.fee || 0,
-      createdBy:    req.coach.name,
+      monthlyFee:
+        monthlyFee !== undefined &&
+          monthlyFee !== null &&
+          monthlyFee !== "" &&
+          !isNaN(monthlyFee)
+          ? Number(monthlyFee)
+          : batch.fee || 0,
+      createdBy: req.coach.name,
     });
 
     if (req.files?.profile?.[0]) {
-      student.profile    = req.files.profile[0].path;
+      student.profile = req.files.profile[0].path;
       student.profile_id = req.files.profile[0].filename;
     }
 
@@ -179,7 +185,7 @@ export const coachCreateStudent = async (req, res, next) => {
 export const coachUpdateStudent = async (req, res, next) => {
   try {
     const { studentId } = req.params;
-    const coachId       = req.coach._id;
+    const coachId = req.coach._id;
 
     const student = await Student.findOne({ _id: studentId, coachId });
     if (!student) return next(handleErrors(404, "Student not found or not in your batch"));
@@ -196,8 +202,8 @@ export const coachUpdateStudent = async (req, res, next) => {
       }
       const conflict = await Student.findOne({
         aadharNumber: aadharNumber.trim(),
-        batchId:      student.batchId,
-        _id:          { $ne: student._id },
+        batchId: student.batchId,
+        _id: { $ne: student._id },
       });
       if (conflict) {
         return next(
@@ -207,19 +213,26 @@ export const coachUpdateStudent = async (req, res, next) => {
       student.aadharNumber = aadharNumber.trim();
     }
 
-    if (name?.trim())             student.name       = name.trim();
-    if (fatherName?.trim())       student.fatherName = fatherName.trim();
+    if (name?.trim()) student.name = name.trim();
+    if (fatherName?.trim()) student.fatherName = fatherName.trim();
     if (motherName !== undefined) student.motherName = motherName?.trim() || "";
-    if (phone?.trim())            student.phone      = phone.trim();
+    if (phone?.trim()) student.phone = phone.trim();
     if (schoolName !== undefined) student.schoolName = schoolName?.trim() || "";
-    if (address    !== undefined) student.address    = address?.trim()    || "";
-    if (DOB        !== undefined) student.DOB        = DOB || "";
-    if (status)                   student.status     = status;
-    if (monthlyFee !== undefined) student.monthlyFee = Number(monthlyFee);
+    if (address !== undefined) student.address = address?.trim() || "";
+    if (DOB !== undefined) student.DOB = DOB || "";
+    if (status) student.status = status;
+    if (
+      monthlyFee !== undefined &&
+      monthlyFee !== null &&
+      monthlyFee !== "" &&
+      !isNaN(monthlyFee)
+    ) {
+      student.monthlyFee = Number(monthlyFee);
+    }
 
     if (req.files?.profile?.[0]) {
       if (student.profile_id) await deleteFromCloudinary(student.profile_id);
-      student.profile    = req.files.profile[0].path;
+      student.profile = req.files.profile[0].path;
       student.profile_id = req.files.profile[0].filename;
     }
 
@@ -237,7 +250,7 @@ export const coachUpdateStudent = async (req, res, next) => {
 export const coachDeleteStudent = async (req, res, next) => {
   try {
     const { studentId } = req.params;
-    const coachId       = req.coach._id;
+    const coachId = req.coach._id;
 
     const student = await Student.findOne({ _id: studentId, coachId });
     if (!student) return next(handleErrors(404, "Student not found or not in your batch"));
@@ -254,10 +267,10 @@ export const coachDeleteStudent = async (req, res, next) => {
 // ── POST /coach/batch/:batchId/students/bulk ──────────────
 export const coachBulkCreateStudents = async (req, res, next) => {
   try {
-    const { batchId }  = req.params;
+    const { batchId } = req.params;
     const { students } = req.body;
-    const coachId      = req.coach._id;
-    const adminId      = req.coach.adminId;
+    const coachId = req.coach._id;
+    const adminId = req.coach.adminId;
 
     if (!students?.length) {
       return next(handleErrors(400, "Students array is required"));
@@ -273,7 +286,7 @@ export const coachBulkCreateStudents = async (req, res, next) => {
     for (const s of students) {
       try {
         const aadhar = s.aadharNumber?.toString().trim();
-        const phone  = s.phone?.toString().trim();
+        const phone = s.phone?.toString().trim();
 
         if (!aadhar) {
           skipped++;
@@ -299,20 +312,26 @@ export const coachBulkCreateStudents = async (req, res, next) => {
         }
 
         await Student.create({
-          name:         s.name?.trim()       || "Unknown",
-          fatherName:   s.fatherName?.trim() || "Unknown",
-          motherName:   s.motherName?.trim() || "",
+          name: s.name?.trim() || "Unknown",
+          fatherName: s.fatherName?.trim() || "Unknown",
+          motherName: s.motherName?.trim() || "",
           phone,
           aadharNumber: aadhar,
-          schoolName:   s.schoolName?.trim() || "",
-          address:      s.address?.trim()    || "",
-          DOB:          s.DOB                || "",
-          batchId:      batch._id,
-          batchName:    batch.batchName,
+          schoolName: s.schoolName?.trim() || "",
+          address: s.address?.trim() || "",
+          DOB: s.DOB || "",
+          batchId: batch._id,
+          batchName: batch.batchName,
           coachId,
           adminId,
-          monthlyFee:   s.monthlyFee || batch.fee || 0,
-          createdBy:    req.coach.name,
+          monthlyFee:
+            s.monthlyFee !== undefined &&
+              s.monthlyFee !== null &&
+              s.monthlyFee !== "" &&
+              !isNaN(s.monthlyFee)
+              ? Number(s.monthlyFee)
+              : batch.fee || 0,
+          createdBy: req.coach.name,
         });
         created++;
       } catch (rowErr) {

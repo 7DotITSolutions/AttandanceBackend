@@ -7,6 +7,7 @@ import "express-async-errors";
 import authRouter  from "./routes/auth.routes.js";
 import adminRouter from "./routes/admin.routes.js";
 import coachRouter from "./routes/coach.routes.js";
+import waRouter from "./routes/whatsapp.routes.js";
 
 dotenv.config();
 
@@ -35,6 +36,7 @@ app.get("/", (req, res) => {
 app.use("/auth",  authRouter);
 app.use("/admin", adminRouter);
 app.use("/coach", coachRouter);
+app.use("/whatsapp",  waRouter);
 
 // ── 404 handler ───────────────────────────────────────────
 app.use((req, res) => {

@@ -8,26 +8,17 @@
 
 // import nodemailer from "nodemailer";
 // import dotenv from "dotenv";
-// import dns from "dns";
-// dns.setDefaultResultOrder("ipv4first");
 
 // dotenv.config();
 
 // // ── Create reusable transporter ───────────────────────────
 // const transporter = nodemailer.createTransport({
-//   host: "smtp.gmail.com",
-//   port: 587,
-//   secure: false,
+//   host:   process.env.EMAIL_HOST   || "smtp.gmail.com",
+//   port:   parseInt(process.env.EMAIL_PORT) || 587,
+//   secure: false, // true for port 465
 //   auth: {
 //     user: process.env.EMAIL_USER,
 //     pass: process.env.EMAIL_PASS,
-//   },
-//   family: 4, // 🔥 FORCE IPv4 (VERY IMPORTANT)
-//   connectionTimeout: 10000,
-//   greetingTimeout: 10000,
-//   socketTimeout: 10000,
-//   tls: {
-//     rejectUnauthorized: false,
 //   },
 // });
 
@@ -153,65 +144,33 @@
 // };
 
 // export default sendEmail;
+
 // =============================================================
 // FILE: src/utils/sendEmail.js
-// PURPOSE: Nodemailer wrapper for sending all system emails.
-// FINAL FIX: Forces IPv4 to avoid ENETUNREACH error on Render
+// PURPOSE: Send emails using SendGrid API (production ready)
 // =============================================================
 
-import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 import dotenv from "dotenv";
-import dns from "dns";
 
 dotenv.config();
 
-// ── Force IPv4 resolution ─────────────────────────────────
-const getIPv4 = async () => {
-  try {
-    const addresses = await dns.promises.resolve4("smtp.gmail.com");
-    return addresses[0]; // first IPv4
-  } catch (err) {
-    console.error("DNS resolve error:", err);
-    throw err;
-  }
-};
-
-// ── Create transporter dynamically ───────────────────────
-const createTransporter = async () => {
-  const ipv4 = await getIPv4();
-
-  return nodemailer.createTransport({
-    host: ipv4, // 🔥 force IPv4
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
-    tls: {
-      rejectUnauthorized: false,
-    },
-  });
-};
+// ── Configure SendGrid ────────────────────────────────────
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // ── Generic send function ─────────────────────────────────
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const transporter = await createTransporter();
-
-    await transporter.sendMail({
-      from: `"Attendance Pro" <${process.env.EMAIL_USER}>`,
+    await sgMail.send({
       to,
+      from: `"Attendance Pro" <${process.env.EMAIL_USER}>`, // must be verified sender
       subject,
       html,
     });
 
-    console.log("✅ Email sent successfully");
+    console.log("✅ Email sent via SendGrid");
   } catch (err) {
-    console.error("❌ Email send failed FULL ERROR:", err);
+    console.error("❌ SendGrid error:", err.response?.body || err.message);
   }
 };
 
@@ -266,7 +225,7 @@ export const sendCoachCredentials = async (email, name, password) => {
         <p>Your coach account has been created. Use the credentials below to log in.</p>
         <table style="width:100%;border-collapse:collapse;margin:1rem 0">
           <tr>
-            <td style="padding:0.5rem;background:#f0f9ff;font-weight:600">Email</td>
+            <td style="padding:0.5rem;background:#f0f9ff;border-radius:4px 0 0 4px;font-weight:600">Email</td>
             <td style="padding:0.5rem;background:#f0f9ff">${email}</td>
           </tr>
           <tr>
@@ -274,13 +233,16 @@ export const sendCoachCredentials = async (email, name, password) => {
             <td style="padding:0.5rem">${password}</td>
           </tr>
         </table>
-        <p>Please change your password after logging in.</p>
+        <p>You will be asked to verify your email on first login.</p>
+        <p style="color:#888;font-size:0.85rem">
+          Please change your password after logging in for security.
+        </p>
       </div>
     `,
   });
 };
 
-// ── Template: Coach OTP ──────────────────────────────────
+// ── Template: Coach first-login OTP ──────────────────────
 export const sendCoachVerificationOtp = async (email, name, otp) => {
   await sendEmail({
     to: email,
@@ -289,10 +251,13 @@ export const sendCoachVerificationOtp = async (email, name, otp) => {
       <div style="font-family:sans-serif;max-width:480px;margin:auto">
         <h2 style="color:#0891b2">Attendance Pro</h2>
         <p>Hi <strong>${name}</strong>,</p>
-        <p>Enter this OTP to verify your email.</p>
+        <p>Enter this OTP to verify your email and access your dashboard. Valid for <strong>10 minutes</strong>.</p>
         <div style="font-size:2rem;font-weight:700;letter-spacing:0.3em;padding:1rem;background:#ecfeff;border-radius:8px;text-align:center;color:#0891b2">
           ${otp}
         </div>
+        <p style="color:#888;font-size:0.85rem;margin-top:1rem">
+          After this, you can log in directly with your email and password.
+        </p>
       </div>
     `,
   });
@@ -306,9 +271,10 @@ export const sendFeeReminder = async (email, studentName, month, amount) => {
     html: `
       <div style="font-family:sans-serif;max-width:480px;margin:auto">
         <h2 style="color:#dc2626">Attendance Pro</h2>
-        <p>Fee pending for <strong>${studentName}</strong></p>
-        <p>Month: ${month}</p>
-        <p>Amount: ₹${amount}</p>
+        <p>Dear Parent/Guardian,</p>
+        <p>This is a reminder that the fee for <strong>${studentName}</strong> for <strong>${month}</strong> 
+           of <strong>₹${amount}</strong> is pending.</p>
+        <p>Please contact the institute to clear the dues.</p>
       </div>
     `,
   });

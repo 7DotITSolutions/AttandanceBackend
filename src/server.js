@@ -7,43 +7,39 @@ import "express-async-errors";
 import authRouter  from "./routes/auth.routes.js";
 import adminRouter from "./routes/admin.routes.js";
 import coachRouter from "./routes/coach.routes.js";
-import waRouter from "./routes/whatsapp.routes.js";
+import waRouter    from "./routes/whatsapp.routes.js";
 
 dotenv.config();
 
 const app = express();
 
-// ── CORS FIX (FINAL) ──────────────────────────────────────
-app.use(cors({
-  origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-}));
+// ── ✅ CORS (ALLOW EVERYONE) ──────────────────────────────
+app.use(cors()); // allows all origins
 
+// OPTIONAL: handle preflight cleanly
 app.options("*", cors());
 
-// ── Body Parsers ───────────────────────────────────────────
+// ── Body Parsers ─────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// ── Health check ──────────────────────────────────────────
+// ── Health check ─────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({ success: true, message: "Attendance Pro API running" });
 });
 
-// ── Routes ────────────────────────────────────────────────
-app.use("/auth",  authRouter);
+// ── Routes ───────────────────────────────────────────────
+app.use("/auth", authRouter);
 app.use("/admin", adminRouter);
 app.use("/coach", coachRouter);
-app.use("/whatsapp",  waRouter);
+app.use("/whatsapp", waRouter);
 
-// ── 404 handler ───────────────────────────────────────────
+// ── 404 handler ──────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
 });
 
-// ── Global error handler ──────────────────────────────────
+// ── Global error handler ─────────────────────────────────
 app.use((err, req, res, next) => {
   const status  = err.status || err.statusCode || 500;
   const message = err.message || "Internal server error";
@@ -53,7 +49,7 @@ app.use((err, req, res, next) => {
   res.status(status).json({ success: false, message });
 });
 
-// ── Connect DB then start server ──────────────────────────
+// ── Connect DB then start server ─────────────────────────
 const PORT = process.env.PORT || 5000;
 
 mongoose
@@ -61,7 +57,7 @@ mongoose
   .then(() => {
     console.log("✅ MongoDB connected");
     app.listen(PORT, () =>
-      console.log(`🚀 Server running on http://localhost:${PORT}`)
+      console.log(`🚀 Server running on port ${PORT}`)
     );
   })
   .catch((err) => {

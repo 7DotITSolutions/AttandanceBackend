@@ -152,7 +152,7 @@ export const coachCreateStudent = async (req, res, next) => {
           monthlyFee !== "" &&
           !isNaN(monthlyFee)
           ? Number(monthlyFee)
-          : batch.fee || 0,
+          : batch.fee,
       createdBy: req.coach.name,
     });
 
@@ -330,7 +330,7 @@ export const coachBulkCreateStudents = async (req, res, next) => {
               s.monthlyFee !== "" &&
               !isNaN(s.monthlyFee)
               ? Number(s.monthlyFee)
-              : batch.fee || 0,
+              : batch.fee,
           createdBy: req.coach.name,
         });
         created++;

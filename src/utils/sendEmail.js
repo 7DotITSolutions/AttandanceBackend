@@ -8,19 +8,22 @@
 
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
 
 dotenv.config();
 
 // ── Create reusable transporter ───────────────────────────
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || "smtp.gmail.com",
+  host: "smtp.gmail.com",
   port: 587,
   secure: false,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  connectionTimeout: 10000, // 10 sec
+  family: 4, // 🔥 FORCE IPv4 (VERY IMPORTANT)
+  connectionTimeout: 10000,
   greetingTimeout: 10000,
   socketTimeout: 10000,
   tls: {

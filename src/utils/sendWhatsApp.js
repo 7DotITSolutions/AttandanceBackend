@@ -162,5 +162,4 @@ export const sendLowAttendanceAlert = async ({
 
   return sendWA(phone, message);
 };
-
 export default sendWA;

@@ -45,7 +45,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Health check
 app.get("/", (req, res) =>
-  res.json({ success: true, message: "Attendance Pro API running" })
+  res.json({ success: true, message: "Tick API running" })
 );
 
 // Routes

@@ -51,7 +51,7 @@ const normalizePhone = (phone) => {
 const sendWA = async (to, message) => {
   const normalized = normalizePhone(to);
   const from       = process.env.TWILIO_WHATSAPP_FROM || "whatsapp:+14155238886";
-  const institution = process.env.INSTITUTION_NAME   || "AttendancePro";
+  const institution = process.env.INSTITUTION_NAME   || "Tick";
 
   // Dev mode — just log
   if (!process.env.TWILIO_ACCOUNT_SID || process.env.NODE_ENV === "development") {

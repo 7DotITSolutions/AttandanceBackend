@@ -156,7 +156,7 @@ export const verifyEmail = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: "Email verified! Welcome to AttendancePro.",
+      message: "Email verified! Welcome to Tick.",
       token,
       user:  userData, // AuthContext reads this
       admin: userData, // backward compat

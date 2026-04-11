@@ -98,8 +98,7 @@ export const sendFeeReminder = async ({
     `📚 *${inst}*\n\n` +
     `Dear Parent of *${studentName}*,\n\n` +
     `🗓️ *${currentMonth} Fee Reminder*\n` +
-    // `Monthly Fee: *₹${monthlyFee}*\n` +
-    `Monthly Fee: *₹${remainingBalance}*\n` +
+    `Monthly Fee: *₹${monthlyFee}*\n` +
     `Please pay your fees at the earliest.\n\n` +
     `📊 *${lastMonthName} Attendance*\n` +
     `✅ Present: ${present} days\n` +

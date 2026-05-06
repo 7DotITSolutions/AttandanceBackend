@@ -1,10 +1,7 @@
 // =============================================================
 // FILE: src/controllers/auth/unified.auth.controller.js
 // PURPOSE: Single POST /auth/login for all users (admin/coach).
-//          Checks Admin first, then Coach by email.
-//          Returns both role-specific key AND generic "user"
-//          key so frontend AuthContext works reliably.
-//          POST /auth/verify-coach-email for first-login OTP.
+//          FIXED: Coach is checked FIRST to avoid admin blocking.
 // =============================================================
 
 import Admin from "../../models/admin.model.js";
@@ -40,12 +37,76 @@ export const unifiedLogin = async (req, res, next) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // ── Step 1: Check Admin collection ───────────────────
+    // ======================================================
+    // STEP 1: CHECK COACH FIRST (FIX)
+    // ======================================================
+    const coach = await Coach.findOne({ email: normalizedEmail })
+      .select("+password +currentToken");
+
+    if (coach) {
+      if (!coach.password) {
+        return next(
+          handleErrors(
+            400,
+            "Account setup incomplete. Contact your admin to reset credentials."
+          )
+        );
+      }
+
+      const isMatch = await coach.comparePassword(password);
+      if (!isMatch) {
+        return next(handleErrors(401, "Invalid email or password"));
+      }
+
+      if (coach.status !== "active") {
+        return next(
+          handleErrors(403, "Your account is deactivated. Contact your admin.")
+        );
+      }
+
+      // ── FIRST LOGIN → SEND OTP ─────────────────────────
+      if (!coach.isEmailVerified) {
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        coach.otp = otp;
+        coach.otpCreatedAt = new Date();
+        await coach.save({ validateBeforeSave: false });
+
+        await sendCoachVerificationOtp(coach.email, coach.name, otp);
+
+        return res.status(200).json({
+          success: true,
+          requiresEmailVerification: true,
+          message: "OTP sent to your email. Please verify to continue.",
+          email: coach.email,
+        });
+      }
+
+      // ── NORMAL COACH LOGIN ─────────────────────────────
+      const token = signToken({ id: coach._id, role: "coach" });
+
+      coach.currentToken = token;
+      coach.lastLogin = new Date();
+      await coach.save({ validateBeforeSave: false });
+
+      const userData = sanitize(coach);
+
+      return res.status(200).json({
+        success: true,
+        message: "Login successful",
+        token,
+        user: userData,
+        coach: userData,
+      });
+    }
+
+    // ======================================================
+    // STEP 2: CHECK ADMIN
+    // ======================================================
     const admin = await Admin.findOne({ email: normalizedEmail })
       .select("+password +currentToken");
 
     if (admin) {
-      // Admin found — verify password
       const isMatch = await admin.comparePassword(password);
       if (!isMatch) {
         return next(handleErrors(401, "Invalid email or password"));
@@ -57,10 +118,10 @@ export const unifiedLogin = async (req, res, next) => {
         );
       }
 
-      // Generate token and save
       const token = signToken({ id: admin._id, role: admin.role });
+
       admin.currentToken = token;
-      admin.lastLogin    = new Date();
+      admin.lastLogin = new Date();
       await admin.save({ validateBeforeSave: false });
 
       const userData = sanitize(admin);
@@ -69,76 +130,13 @@ export const unifiedLogin = async (req, res, next) => {
         success: true,
         message: "Login successful",
         token,
-        user:  userData,  // generic — AuthContext always reads this
-        admin: userData,  // role-specific — for backward compat
+        user: userData,
+        admin: userData,
       });
     }
 
-    // ── Step 2: Check Coach collection ───────────────────
-    const coach = await Coach.findOne({ email: normalizedEmail })
-      .select("+password +currentToken");
-
-    if (!coach) {
-      // Neither admin nor coach found
-      return next(handleErrors(401, "Invalid email or password"));
-    }
-
-    // Coach must have password set (new flow)
-    if (!coach.password) {
-      return next(
-        handleErrors(
-          400,
-          "Account setup incomplete. Contact your admin to reset credentials."
-        )
-      );
-    }
-
-    // Verify password
-    const isMatch = await coach.comparePassword(password);
-    if (!isMatch) {
-      return next(handleErrors(401, "Invalid email or password"));
-    }
-
-    // Check coach is active
-    if (coach.status !== "active") {
-      return next(
-        handleErrors(403, "Your account is deactivated. Contact your admin.")
-      );
-    }
-
-    // ── Coach first login: send OTP ───────────────────────
-    if (!coach.isEmailVerified) {
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      coach.otp          = otp;
-      coach.otpCreatedAt = new Date();
-      await coach.save({ validateBeforeSave: false });
-
-      // Send OTP email
-      await sendCoachVerificationOtp(coach.email, coach.name, otp);
-
-      return res.status(200).json({
-        success:                   true,
-        requiresEmailVerification: true,
-        message: "OTP sent to your email. Please verify to continue.",
-        email:   coach.email, // frontend stores this as coachPendingEmail
-      });
-    }
-
-    // ── Coach normal login ────────────────────────────────
-    const token = signToken({ id: coach._id, role: "coach" });
-    coach.currentToken = token;
-    coach.lastLogin    = new Date();
-    await coach.save({ validateBeforeSave: false });
-
-    const userData = sanitize(coach);
-
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-      user:  userData,  // generic
-      coach: userData,  // role-specific
-    });
+    // ── NO USER FOUND ───────────────────────────────────
+    return next(handleErrors(401, "Invalid email or password"));
 
   } catch (err) {
     next(err);
@@ -163,28 +161,33 @@ export const verifyCoachEmail = async (req, res, next) => {
     }
 
     if (coach.isEmailVerified) {
-      return next(handleErrors(400, "Email is already verified. Please login normally."));
+      return next(
+        handleErrors(400, "Email is already verified. Please login normally.")
+      );
     }
 
     if (!coach.otp || coach.otp !== otp) {
       return next(handleErrors(400, "Invalid OTP. Please check your email."));
     }
 
-    // Check OTP expiry (10 minutes)
     const otpAge = Date.now() - new Date(coach.otpCreatedAt).getTime();
     if (otpAge > 10 * 60 * 1000) {
       return next(
-        handleErrors(400, "OTP has expired. Please login again to receive a new OTP.")
+        handleErrors(
+          400,
+          "OTP has expired. Please login again to receive a new OTP."
+        )
       );
     }
 
-    // Mark verified and issue token
     const token = signToken({ id: coach._id, role: "coach" });
+
     coach.isEmailVerified = true;
-    coach.otp             = null;
-    coach.otpCreatedAt    = null;
-    coach.currentToken    = token;
-    coach.lastLogin       = new Date();
+    coach.otp = null;
+    coach.otpCreatedAt = null;
+    coach.currentToken = token;
+    coach.lastLogin = new Date();
+
     await coach.save({ validateBeforeSave: false });
 
     const userData = sanitize(coach);
@@ -193,7 +196,7 @@ export const verifyCoachEmail = async (req, res, next) => {
       success: true,
       message: "Email verified successfully. Welcome!",
       token,
-      user:  userData,
+      user: userData,
       coach: userData,
     });
 

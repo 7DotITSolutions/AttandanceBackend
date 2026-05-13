@@ -43,6 +43,7 @@ import {
   coachUpdateStudent,
   coachDeleteStudent,
   coachBulkCreateStudents,
+  coachGetAllStudents,
 } from "../controllers/coach/student.controller.js";
 
 const coachRouter = express.Router();
@@ -73,6 +74,11 @@ coachRouter.post(
   coachBulkCreateStudents
 );
 
+// Get his all students
+coachRouter.get(
+  "/students",
+  coachGetAllStudents
+);
 // Get single student detail
 coachRouter.get(
   "/student/:studentId",

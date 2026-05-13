@@ -18,6 +18,44 @@ const isValidAadhar = (num) => /^\d{12}$/.test(num?.trim());
 const verifyCoachBatch = (batchId, coachId, adminId) =>
   Batch.findOne({ _id: batchId, coachId, adminId });
 
+// Get ALL students from all batches assigned to coach
+export const coachGetAllStudents = async (req, res, next) => {
+  try {
+    const coachId = req.coach._id;
+
+    const { search } = req.query;
+
+    const filter = {
+      coachId,
+      status: "active",
+    };
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { fatherName: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+        { aadharNumber: { $regex: search, $options: "i" } },
+        { batchName: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const students = await Student.find(filter)
+      .select(
+        "name fatherName phone aadharNumber monthlyFee advanceBalance status enrollDate profile batchName DOB schoolName address"
+      )
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      students,
+      total: students.length,
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
 // ── GET /coach/batch/:batchId/students ────────────────────
 export const coachGetBatchStudents = async (req, res, next) => {
   try {

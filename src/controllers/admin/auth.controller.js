@@ -148,7 +148,7 @@ export const verifyEmail = async (req, res, next) => {
     admin.isVerified   = true;
     admin.otp          = null;
     admin.otpCreatedAt = null;
-    admin.currentToken = token;
+    //admin.currentToken = token;
     admin.lastLogin    = new Date();
     await admin.save({ validateBeforeSave: false });
 

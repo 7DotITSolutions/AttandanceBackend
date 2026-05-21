@@ -37,9 +37,9 @@ export const authenticateCoach = async (req, res, next) => {
     if (!coach) {
       return next(handleErrors(401, "Account not found."));
     }
-    if (coach.currentToken !== token) {
-      return next(handleErrors(401, "Session expired. Please login again."));
-    }
+    // if (coach.currentToken !== token) {
+    //   return next(handleErrors(401, "Session expired. Please login again."));
+    // }
     if (coach.status !== "active") {
       return next(handleErrors(403, "Your account has been deactivated."));
     }

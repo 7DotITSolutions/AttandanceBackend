@@ -36,9 +36,9 @@ export const authenticateBoth = async (req, res, next) => {
     if (role === "admin" || role === "admin+coach") {
       const admin = await Admin.findById(decoded.id).select("+currentToken");
       if (!admin) return next(handleErrors(401, "Account not found."));
-      if (admin.currentToken !== token) {
-        return next(handleErrors(401, "Session expired. Please login again."));
-      }
+      // if (admin.currentToken !== token) {
+      //   return next(handleErrors(401, "Session expired. Please login again."));
+      // }
       req.user = {
         id:      admin._id,
         role:    admin.role,
@@ -54,9 +54,9 @@ export const authenticateBoth = async (req, res, next) => {
     if (role === "coach") {
       const coach = await Coach.findById(decoded.id).select("+currentToken");
       if (!coach) return next(handleErrors(401, "Account not found."));
-      if (coach.currentToken !== token) {
-        return next(handleErrors(401, "Session expired. Please login again."));
-      }
+      // if (coach.currentToken !== token) {
+      //   return next(handleErrors(401, "Session expired. Please login again."));
+      // }
       if (coach.status !== "active") {
         return next(handleErrors(403, "Your account has been deactivated."));
       }

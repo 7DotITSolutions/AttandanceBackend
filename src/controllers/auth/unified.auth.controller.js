@@ -84,8 +84,8 @@ export const unifiedLogin = async (req, res, next) => {
 
       // ── NORMAL COACH LOGIN ─────────────────────────────
       const token = signToken({ id: coach._id, role: "coach" });
-
-      coach.currentToken = token;
+// coach.currentToken = token;
+      
       coach.lastLogin = new Date();
       await coach.save({ validateBeforeSave: false });
 
@@ -120,7 +120,7 @@ export const unifiedLogin = async (req, res, next) => {
 
       const token = signToken({ id: admin._id, role: admin.role });
 
-      admin.currentToken = token;
+      //admin.currentToken = token;
       admin.lastLogin = new Date();
       await admin.save({ validateBeforeSave: false });
 
@@ -185,7 +185,7 @@ export const verifyCoachEmail = async (req, res, next) => {
     coach.isEmailVerified = true;
     coach.otp = null;
     coach.otpCreatedAt = null;
-    coach.currentToken = token;
+    //coach.currentToken = token;
     coach.lastLogin = new Date();
 
     await coach.save({ validateBeforeSave: false });

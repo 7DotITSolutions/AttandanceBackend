@@ -37,9 +37,9 @@ export const authenticateAdmin = async (req, res, next) => {
     if (!admin) {
       return next(handleErrors(401, "Account not found."));
     }
-    if (admin.currentToken !== token) {
-      return next(handleErrors(401, "Session expired. Please login again."));
-    }
+    // if (admin.currentToken !== token) {
+    //   return next(handleErrors(401, "Session expired. Please login again."));
+    // }
 
     // ── Attach to request ─────────────────────────────────
     req.admin = admin;
